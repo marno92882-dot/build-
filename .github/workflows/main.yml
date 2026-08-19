@@ -36,11 +36,11 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # 3. Setup Flutter (versi yang kompatibel dengan Dart 3.0)
+      # 3. Setup Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.3'  # Stabil untuk Dart 3.0
+          flutter-version: '3.22.3'
           channel: 'stable'
           cache: true
 
@@ -92,31 +92,72 @@ jobs:
           
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
           echo "✅ Project ditemukan di: $PROJECT_DIR"
-          
-          # Tampilkan info project
-          cd $PROJECT_DIR
-          echo "📱 Nama project: $(grep '^name:' pubspec.yaml | cut -d' ' -f2)"
-          echo "📱 Deskripsi: $(grep '^description:' pubspec.yaml | cut -d' ' -f2-)"
 
-      # 7. Update Gradle untuk kompatibilitas
+      # 7. FIX ANDROIDX - Langkah penting!
+      - name: Enable AndroidX
+        run: |
+          cd ${{ env.PROJECT_DIR }}
+          
+          echo "🔧 Mengaktifkan AndroidX..."
+          
+          # Buat atau update gradle.properties
+          GRADLE_PROPERTIES="android/gradle.properties"
+          
+          # Backup file lama jika ada
+          if [ -f "$GRADLE_PROPERTIES" ]; then
+            cp "$GRADLE_PROPERTIES" "${GRADLE_PROPERTIES}.backup"
+            echo "📄 File gradle.properties lama di-backup"
+          fi
+          
+          # Tambahkan AndroidX settings
+          echo "android.useAndroidX=true" >> "$GRADLE_PROPERTIES"
+          echo "android.enableJetifier=true" >> "$GRADLE_PROPERTIES"
+          
+          echo "✅ gradle.properties diupdate:"
+          cat "$GRADLE_PROPERTIES"
+
+      # 8. Update Gradle Configuration
       - name: Update Gradle Configuration
         run: |
           cd ${{ env.PROJECT_DIR }}
           
-          # Update Gradle wrapper ke versi yang kompatibel
+          echo "🔧 Mengupdate konfigurasi Gradle..."
+          
+          # Update gradle-wrapper.properties
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            echo "📦 Mengupdate Gradle wrapper..."
+            echo "📦 Mengupdate Gradle wrapper ke 8.3..."
             sed -i 's/gradle-.*-all.zip/gradle-8.3-all.zip/' android/gradle/wrapper/gradle-wrapper.properties
             cat android/gradle/wrapper/gradle-wrapper.properties
           fi
           
-          # Update Kotlin versi jika perlu
-          if [ -f "android/build.gradle" ]; then
+          # Cek dan update compileSdkVersion jika perlu
+          if [ -f "android/app/build.gradle" ]; then
             echo "📦 Mengecek build.gradle..."
-            cat android/build.gradle | grep -E "kotlin|gradle" || true
+            
+            # Pastikan compileSdkVersion >= 33
+            if grep -q "compileSdkVersion" android/app/build.gradle; then
+              # Update ke versi yang lebih baru jika kurang dari 33
+              sed -i 's/compileSdkVersion [0-9]*/compileSdkVersion 34/' android/app/build.gradle
+              sed -i 's/compileSdk = [0-9]*/compileSdk = 34/' android/app/build.gradle
+              echo "✅ compileSdkVersion diupdate ke 34"
+            fi
+            
+            # Pastikan minSdkVersion >= 19
+            if grep -q "minSdkVersion" android/app/build.gradle; then
+              sed -i 's/minSdkVersion [0-9]*/minSdkVersion 21/' android/app/build.gradle
+              sed -i 's/minSdk = [0-9]*/minSdk = 21/' android/app/build.gradle
+              echo "✅ minSdkVersion diupdate ke 21"
+            fi
+            
+            # Pastikan targetSdkVersion >= 33
+            if grep -q "targetSdkVersion" android/app/build.gradle; then
+              sed -i 's/targetSdkVersion [0-9]*/targetSdkVersion 34/' android/app/build.gradle
+              sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' android/app/build.gradle
+              echo "✅ targetSdkVersion diupdate ke 34"
+            fi
           fi
 
-      # 8. Install Dependencies
+      # 9. Install Dependencies
       - name: Install Dependencies
         run: |
           cd ${{ env.PROJECT_DIR }}
@@ -126,7 +167,7 @@ jobs:
           echo "📦 Install dependencies..."
           flutter pub get
 
-      # 9. Build APK
+      # 10. Build APK
       - name: Build APK Release
         run: |
           cd ${{ env.PROJECT_DIR }}
@@ -134,7 +175,7 @@ jobs:
           
           flutter build apk --release
 
-      # 10. Cek hasil build
+      # 11. Cek hasil build
       - name: Check APK
         run: |
           APK_PATH="${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk"
@@ -145,11 +186,10 @@ jobs:
             echo "📦 Ukuran APK: $((APK_SIZE / 1024 / 1024)) MB"
           else
             echo "❌ APK tidak ditemukan!"
-            find ${{ env.PROJECT_DIR }}/build -name "*.apk" 2>/dev/null || echo "Tidak ada APK"
             exit 1
           fi
 
-      # 11. Kirim APK ke Telegram
+      # 12. Kirim APK ke Telegram
       - name: Send APK to Owner
         run: |
           APK_PATH="${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk"
@@ -161,7 +201,7 @@ jobs:
           # Kirim pesan status
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d chat_id="$OWNER_ID" \
-            -d text="✅ Build APK selesai!\n📦 Ukuran: $((APK_SIZE / 1024 / 1024)) MB\n📤 Mengirim file..."
+            -d text="✅ Build Marno Connect APK selesai!\n📦 Ukuran: $((APK_SIZE / 1024 / 1024)) MB\n📤 Mengirim file..."
           
           # Kirim file APK
           RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
@@ -178,7 +218,7 @@ jobs:
             exit 1
           fi
 
-      # 12. Upload sebagai artifact (backup)
+      # 13. Upload sebagai artifact (backup)
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
