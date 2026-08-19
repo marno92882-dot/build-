@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       zip_url:
-        description: 'URL file ZIP yang dikirim ke bot Telegram'
+        description: 'URL file ZIP (gunakan raw link)'
         required: true
       chat_id:
-        description: 'Chat ID Telegram untuk kirim hasil'
+        description: 'Chat ID Telegram'
         required: true
 
 jobs:
@@ -43,51 +43,102 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 4. Download ZIP dari URL
+      # 4. Download ZIP dengan penanganan khusus
       - name: Download ZIP
         run: |
-          curl -L "${{ github.event.inputs.zip_url }}" -o project.zip
-          ls -la project.zip
+          ZIP_URL="${{ github.event.inputs.zip_url }}"
+          
+          # Convert GitHub blob URL ke raw URL
+          if [[ "$ZIP_URL" == *"github.com"* && "$ZIP_URL" == *"/blob/"* ]]; then
+            ZIP_URL="${ZIP_URL//\/blob\//\/raw\/}"
+            echo "✅ GitHub blob URL diubah ke raw URL: $ZIP_URL"
+          fi
+          
+          echo "📥 Mendownload dari: $ZIP_URL"
+          
+          # Download dengan curl
+          if curl -L --fail --silent --show-error --max-time 300 "$ZIP_URL" -o project.zip; then
+            echo "✅ Download berhasil!"
+          else
+            echo "❌ Download gagal! Pastikan URL adalah direct download link."
+            echo "Tips: Untuk GitHub, gunakan 'raw' bukan 'blob'"
+            exit 1
+          fi
+          
+          # Cek ukuran file
+          FILE_SIZE=$(stat -c%s project.zip 2>/dev/null || stat -f%z project.zip 2>/dev/null)
+          echo "📦 Ukuran file: $FILE_SIZE bytes"
+          
+          if [ "$FILE_SIZE" -lt 1000 ]; then
+            echo "❌ File terlalu kecil, kemungkinan bukan ZIP valid!"
+            echo "Isi file:"
+            head -n 5 project.zip
+            exit 1
+          fi
 
       # 5. Extract ZIP
       - name: Extract Project
         run: |
-          unzip project.zip -d flutter_project
+          echo "📂 Mengextract ZIP..."
+          
+          # Cek tipe file
+          FILE_TYPE=$(file project.zip)
+          echo "Tipe file: $FILE_TYPE"
+          
+          if unzip -q project.zip -d flutter_project; then
+            echo "✅ Extract berhasil!"
+          else
+            echo "❌ Gagal extract! File bukan ZIP valid."
+            echo "Coba upload ulang file ZIP atau gunakan link raw GitHub."
+            exit 1
+          fi
+          
+          echo "📁 Isi folder:"
           ls -la flutter_project/
 
       # 6. Cari folder project
       - name: Check Project Structure
         run: |
-          # Cari folder yang berisi pubspec.yaml
-          PROJECT_DIR=$(find flutter_project -name "pubspec.yaml" -not -path "*/\.*" | head -n 1 | xargs dirname)
+          echo "🔍 Mencari pubspec.yaml..."
+          
+          PROJECT_DIR=$(find flutter_project -name "pubspec.yaml" -not -path "*/\.*" | head -n 1 | xargs dirname 2>/dev/null)
+          
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "❌ pubspec.yaml tidak ditemukan!"
+            echo "Isi folder flutter_project:"
+            find flutter_project -type f | head -n 20
+            exit 1
+          fi
+          
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
-          echo "Project ditemukan di: $PROJECT_DIR"
-          ls -la $PROJECT_DIR
+          echo "✅ Project ditemukan di: $PROJECT_DIR"
 
       # 7. Install Dependencies
       - name: Install Dependencies
         run: |
           cd ${{ env.PROJECT_DIR }}
+          echo "📦 Install dependencies..."
           flutter pub get
 
       # 8. Build APK
       - name: Build APK Release
         run: |
           cd ${{ env.PROJECT_DIR }}
+          echo "🔨 Build APK Release..."
           flutter build apk --release
 
-      # 9. Kirim APK ke Telegram (hanya ke owner)
+      # 9. Kirim APK ke Telegram
       - name: Send APK to Owner
         run: |
           APK_PATH="${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk"
           OWNER_ID="${{ secrets.OWNER_CHAT_ID }}"
           
-          # Kirim pesan "Build selesai"
+          # Kirim pesan
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d chat_id="$OWNER_ID" \
             -d text="✅ Build APK selesai! Mengirim file..."
           
-          # Kirim file APK ke owner
+          # Kirim APK
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
             -F chat_id="$OWNER_ID" \
             -F document=@"$APK_PATH" \
