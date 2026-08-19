@@ -44,7 +44,13 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 4. Download ZIP
+      # 4. Install ImageMagick untuk generate icon
+      - name: Install ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+
+      # 5. Download ZIP
       - name: Download ZIP
         run: |
           ZIP_URL="${{ github.event.inputs.zip_url }}"
@@ -64,7 +70,7 @@ jobs:
             exit 1
           fi
 
-      # 5. Extract ZIP
+      # 6. Extract ZIP
       - name: Extract Project
         run: |
           echo "📂 Mengextract ZIP..."
@@ -78,7 +84,7 @@ jobs:
           
           ls -la flutter_project/
 
-      # 6. Cari folder project
+      # 7. Cari folder project
       - name: Check Project Structure
         run: |
           echo "🔍 Mencari pubspec.yaml..."
@@ -92,72 +98,161 @@ jobs:
           
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
           echo "✅ Project ditemukan di: $PROJECT_DIR"
+          
+          # Cek struktur folder
+          echo "📁 Struktur project:"
+          ls -la $PROJECT_DIR/
+          echo "📁 Folder assets:"
+          ls -la $PROJECT_DIR/assets/ 2>/dev/null || echo "Folder assets tidak ditemukan!"
+          echo "📁 Folder android:"
+          ls -la $PROJECT_DIR/android/ 2>/dev/null || echo "Folder android tidak ditemukan!"
 
-      # 7. FIX ANDROIDX - Langkah penting!
-      - name: Enable AndroidX
+      # 8. Buat gradle.properties jika tidak ada
+      - name: Create gradle.properties
         run: |
           cd ${{ env.PROJECT_DIR }}
           
-          echo "🔧 Mengaktifkan AndroidX..."
+          echo "🔧 Membuat gradle.properties..."
+          
+          # Pastikan folder android ada
+          mkdir -p android
           
           # Buat atau update gradle.properties
-          GRADLE_PROPERTIES="android/gradle.properties"
+          cat > android/gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G -XX:+HeapDumpOnOutOfMemoryError
+          android.useAndroidX=true
+          android.enableJetifier=true
+          android.enableR8=true
+          EOF
           
-          # Backup file lama jika ada
-          if [ -f "$GRADLE_PROPERTIES" ]; then
-            cp "$GRADLE_PROPERTIES" "${GRADLE_PROPERTIES}.backup"
-            echo "📄 File gradle.properties lama di-backup"
+          echo "✅ gradle.properties dibuat:"
+          cat android/gradle.properties
+
+      # 9. Generate Icon dari logo.png
+      - name: Generate Launcher Icons
+        run: |
+          cd ${{ env.PROJECT_DIR }}
+          
+          echo "🔧 Generate icon launcher dari logo.png..."
+          
+          # Cek logo.png
+          if [ ! -f "assets/logo.png" ]; then
+            echo "❌ assets/logo.png tidak ditemukan!"
+            echo "📁 Isi folder assets:"
+            ls -la assets/ 2>/dev/null || echo "Folder assets tidak ada!"
+            exit 1
           fi
           
-          # Tambahkan AndroidX settings
-          echo "android.useAndroidX=true" >> "$GRADLE_PROPERTIES"
-          echo "android.enableJetifier=true" >> "$GRADLE_PROPERTIES"
+          echo "✅ logo.png ditemukan!"
+          echo "📏 Ukuran logo.png:"
+          identify assets/logo.png 2>/dev/null || file assets/logo.png
           
-          echo "✅ gradle.properties diupdate:"
-          cat "$GRADLE_PROPERTIES"
+          # Buat folder mipmap
+          MIPMAP_DIRS=(
+            "android/app/src/main/res/mipmap-mdpi"
+            "android/app/src/main/res/mipmap-hdpi"
+            "android/app/src/main/res/mipmap-xhdpi"
+            "android/app/src/main/res/mipmap-xxhdpi"
+            "android/app/src/main/res/mipmap-xxxhdpi"
+          )
+          
+          # Buat folder jika belum ada
+          for dir in "${MIPMAP_DIRS[@]}"; do
+            mkdir -p "$dir"
+          done
+          
+          # Generate icon berbagai ukuran
+          convert assets/logo.png -resize 48x48 android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          convert assets/logo.png -resize 72x72 android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          convert assets/logo.png -resize 96x96 android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          convert assets/logo.png -resize 144x144 android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          convert assets/logo.png -resize 192x192 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          
+          echo "✅ Icon launcher berhasil dibuat!"
+          
+          # Verifikasi icon
+          for dir in "${MIPMAP_DIRS[@]}"; do
+            if [ -f "$dir/ic_launcher.png" ]; then
+              echo "✅ $dir/ic_launcher.png ($(identify -format '%wx%h' $dir/ic_launcher.png 2>/dev/null))"
+            else
+              echo "❌ $dir/ic_launcher.png tidak dibuat!"
+            fi
+          done
 
-      # 8. Update Gradle Configuration
+      # 10. Fix AndroidManifest.xml
+      - name: Fix AndroidManifest.xml
+        run: |
+          cd ${{ env.PROJECT_DIR }}
+          
+          echo "🔧 Mengecek AndroidManifest.xml..."
+          
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          
+          if [ ! -f "$MANIFEST" ]; then
+            echo "❌ AndroidManifest.xml tidak ditemukan!"
+            echo "📁 Struktur folder android:"
+            find android -type f | head -n 20
+            exit 1
+          fi
+          
+          echo "📄 AndroidManifest.xml sebelum:"
+          cat "$MANIFEST"
+          
+          # Tambahkan icon jika belum ada
+          if ! grep -q 'android:icon="@mipmap/ic_launcher"' "$MANIFEST"; then
+            # Backup
+            cp "$MANIFEST" "${MANIFEST}.backup"
+            
+            # Tambahkan icon di tag application
+            if grep -q '<application' "$MANIFEST"; then
+              sed -i 's/<application/<application android:icon="@mipmap\/ic_launcher"/' "$MANIFEST"
+              echo "✅ Icon ditambahkan ke AndroidManifest.xml"
+            fi
+          else
+            echo "✅ Icon sudah ada di AndroidManifest.xml"
+          fi
+          
+          echo "📄 AndroidManifest.xml sesudah:"
+          cat "$MANIFEST"
+
+      # 11. Update Gradle Configuration
       - name: Update Gradle Configuration
         run: |
           cd ${{ env.PROJECT_DIR }}
           
           echo "🔧 Mengupdate konfigurasi Gradle..."
           
-          # Update gradle-wrapper.properties
+          # Cek gradle-wrapper.properties
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-            echo "📦 Mengupdate Gradle wrapper ke 8.3..."
+            echo "📦 Mengupdate Gradle wrapper..."
             sed -i 's/gradle-.*-all.zip/gradle-8.3-all.zip/' android/gradle/wrapper/gradle-wrapper.properties
             cat android/gradle/wrapper/gradle-wrapper.properties
+          else
+            echo "⚠️ gradle-wrapper.properties tidak ditemukan, membuat baru..."
+            mkdir -p android/gradle/wrapper
+            cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
+            distributionBase=GRADLE_USER_HOME
+            distributionPath=wrapper/dists
+            distributionUrl=https\://services.gradle.org/distributions/gradle-8.3-all.zip
+            zipStoreBase=GRADLE_USER_HOME
+            zipStorePath=wrapper/dists
+            EOF
+            echo "✅ gradle-wrapper.properties dibuat"
           fi
           
-          # Cek dan update compileSdkVersion jika perlu
+          # Update build.gradle
           if [ -f "android/app/build.gradle" ]; then
-            echo "📦 Mengecek build.gradle..."
-            
-            # Pastikan compileSdkVersion >= 33
-            if grep -q "compileSdkVersion" android/app/build.gradle; then
-              # Update ke versi yang lebih baru jika kurang dari 33
-              sed -i 's/compileSdkVersion [0-9]*/compileSdkVersion 34/' android/app/build.gradle
-              sed -i 's/compileSdk = [0-9]*/compileSdk = 34/' android/app/build.gradle
-              echo "✅ compileSdkVersion diupdate ke 34"
-            fi
-            
-            # Pastikan minSdkVersion >= 19
-            if grep -q "minSdkVersion" android/app/build.gradle; then
-              sed -i 's/minSdkVersion [0-9]*/minSdkVersion 21/' android/app/build.gradle
-              sed -i 's/minSdk = [0-9]*/minSdk = 21/' android/app/build.gradle
-              echo "✅ minSdkVersion diupdate ke 21"
-            fi
-            
-            # Pastikan targetSdkVersion >= 33
-            if grep -q "targetSdkVersion" android/app/build.gradle; then
-              sed -i 's/targetSdkVersion [0-9]*/targetSdkVersion 34/' android/app/build.gradle
-              sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' android/app/build.gradle
-              echo "✅ targetSdkVersion diupdate ke 34"
-            fi
+            echo "📦 Mengupdate SDK versions..."
+            sed -i 's/compileSdkVersion [0-9]*/compileSdkVersion 34/' android/app/build.gradle
+            sed -i 's/compileSdk = [0-9]*/compileSdk = 34/' android/app/build.gradle
+            sed -i 's/minSdkVersion [0-9]*/minSdkVersion 21/' android/app/build.gradle
+            sed -i 's/minSdk = [0-9]*/minSdk = 21/' android/app/build.gradle
+            sed -i 's/targetSdkVersion [0-9]*/targetSdkVersion 34/' android/app/build.gradle
+            sed -i 's/targetSdk = [0-9]*/targetSdk = 34/' android/app/build.gradle
+            echo "✅ SDK versions diupdate"
           fi
 
-      # 9. Install Dependencies
+      # 12. Install Dependencies
       - name: Install Dependencies
         run: |
           cd ${{ env.PROJECT_DIR }}
@@ -167,7 +262,7 @@ jobs:
           echo "📦 Install dependencies..."
           flutter pub get
 
-      # 10. Build APK
+      # 13. Build APK
       - name: Build APK Release
         run: |
           cd ${{ env.PROJECT_DIR }}
@@ -175,7 +270,7 @@ jobs:
           
           flutter build apk --release
 
-      # 11. Cek hasil build
+      # 14. Cek hasil build
       - name: Check APK
         run: |
           APK_PATH="${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk"
@@ -186,10 +281,11 @@ jobs:
             echo "📦 Ukuran APK: $((APK_SIZE / 1024 / 1024)) MB"
           else
             echo "❌ APK tidak ditemukan!"
+            find ${{ env.PROJECT_DIR }}/build -name "*.apk" 2>/dev/null || echo "Tidak ada APK"
             exit 1
           fi
 
-      # 12. Kirim APK ke Telegram
+      # 15. Kirim APK ke Telegram
       - name: Send APK to Owner
         run: |
           APK_PATH="${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk"
@@ -218,7 +314,7 @@ jobs:
             exit 1
           fi
 
-      # 13. Upload sebagai artifact (backup)
+      # 16. Upload sebagai artifact (backup)
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
