@@ -20,7 +20,7 @@ jobs:
       contents: read
 
     env:
-      FLUTTER_VERSION: "3.24.0"  # Updated to support Dart 3.5.0+
+      FLUTTER_VERSION: "3.27.0"  # Dart 3.6.0
 
     steps:
       # ============================================================
@@ -195,9 +195,6 @@ jobs:
           fi
           
           echo "✅ Project structure valid."
-          echo
-          echo "pubspec.yaml content (SDK constraints):"
-          grep -A 5 "environment:" pubspec.yaml || echo "No environment section found"
 
       # ============================================================
       # 11. FLUTTER PUB GET
