@@ -20,8 +20,7 @@ jobs:
       contents: read
 
     env:
-      FLUTTER_VERSION: "3.22.3"
-      JAVA_VERSION: "17"
+      FLUTTER_VERSION: "3.24.0"  # Updated to support Dart 3.5.0+
 
     steps:
       # ============================================================
@@ -58,7 +57,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================================
-      # 3. SETUP JAVA (tanpa cache untuk hindari error)
+      # 3. SETUP JAVA
       # ============================================================
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -77,7 +76,19 @@ jobs:
           cache: true
 
       # ============================================================
-      # 5. INSTALL TOOLS
+      # 5. CHECK FLUTTER VERSION
+      # ============================================================
+      - name: Check Flutter Version
+        shell: bash
+        run: |
+          echo "Flutter version:"
+          flutter --version
+          echo
+          echo "Dart version:"
+          dart --version
+
+      # ============================================================
+      # 6. INSTALL TOOLS
       # ============================================================
       - name: Install Build Tools
         shell: bash
@@ -88,7 +99,7 @@ jobs:
           echo "✅ Build tools installed."
 
       # ============================================================
-      # 6. DOWNLOAD ZIP
+      # 7. DOWNLOAD ZIP
       # ============================================================
       - name: Download ZIP
         shell: bash
@@ -127,7 +138,7 @@ jobs:
           echo "✅ ZIP downloaded."
 
       # ============================================================
-      # 7. EXTRACT ZIP
+      # 8. EXTRACT ZIP
       # ============================================================
       - name: Extract Project
         shell: bash
@@ -139,7 +150,7 @@ jobs:
           echo "✅ Extract complete."
 
       # ============================================================
-      # 8. FIND PUBSPEC
+      # 9. FIND PUBSPEC
       # ============================================================
       - name: Detect Flutter Project
         shell: bash
@@ -162,13 +173,16 @@ jobs:
           echo "✅ Flutter project: $PROJECT_DIR"
 
       # ============================================================
-      # 9. VALIDATE PROJECT
+      # 10. CHECK PROJECT
       # ============================================================
-      - name: Validate Project
+      - name: Check Project
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
+          
+          echo "Project directory: $(pwd)"
+          echo
           
           if [ ! -f pubspec.yaml ]; then
             echo "❌ pubspec.yaml missing."
@@ -181,9 +195,12 @@ jobs:
           fi
           
           echo "✅ Project structure valid."
+          echo
+          echo "pubspec.yaml content (SDK constraints):"
+          grep -A 5 "environment:" pubspec.yaml || echo "No environment section found"
 
       # ============================================================
-      # 10. FLUTTER PUB GET
+      # 11. FLUTTER PUB GET
       # ============================================================
       - name: Flutter Pub Get
         shell: bash
@@ -194,7 +211,7 @@ jobs:
           echo "✅ Dependencies installed."
 
       # ============================================================
-      # 11. BUILD APK
+      # 12. BUILD APK
       # ============================================================
       - name: Build APK Release
         shell: bash
@@ -208,7 +225,7 @@ jobs:
           echo "✅ APK build completed."
 
       # ============================================================
-      # 12. FIND APK
+      # 13. FIND APK
       # ============================================================
       - name: Find APK
         shell: bash
@@ -233,7 +250,7 @@ jobs:
           echo "✅ APK found: ${APK_MB} MB"
 
       # ============================================================
-      # 13. UPLOAD ARTIFACT
+      # 14. UPLOAD ARTIFACT
       # ============================================================
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -244,7 +261,7 @@ jobs:
           if-no-files-found: error
 
       # ============================================================
-      # 14. SEND TELEGRAM MESSAGE
+      # 15. SEND TELEGRAM MESSAGE
       # ============================================================
       - name: Send Build Result to Telegram
         shell: bash
@@ -273,7 +290,7 @@ jobs:
           echo "✅ Telegram message sent."
 
       # ============================================================
-      # 15. SEND APK TO TELEGRAM
+      # 16. SEND APK TO TELEGRAM
       # ============================================================
       - name: Send APK to Telegram
         shell: bash
