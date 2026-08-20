@@ -21,7 +21,6 @@ jobs:
 
     env:
       FLUTTER_VERSION: "3.27.0"
-      JAVA_VERSION: "17"
 
     steps:
       # ============================================================
@@ -162,115 +161,7 @@ jobs:
           echo "✅ Flutter project: $PROJECT_DIR"
 
       # ============================================================
-      # 9. FIX ANDROID V1 EMBEDDING
-      # ============================================================
-      - name: Fix Android V1 Embedding
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          
-          echo "🔧 Checking Android embedding..."
-          
-          # Check AndroidManifest.xml for v1 embedding
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ]; then
-            echo "AndroidManifest.xml found"
-            
-            # Check if uses v1 embedding
-            if grep -q "io.flutter.app.FlutterApplication" "$MANIFEST"; then
-              echo "⚠️ Found v1 embedding, fixing..."
-              
-              # Replace v1 application class with v2
-              sed -i 's/io.flutter.app.FlutterApplication/io.flutter.embedding.android.FlutterApplication/g' "$MANIFEST"
-              
-              # Remove flutterEmbedding v1 if exists
-              sed -i '/android:name="flutterEmbedding"/d' "$MANIFEST"
-              
-              echo "✅ Manifest fixed"
-            else
-              echo "✅ Manifest already using v2 embedding"
-            fi
-          else
-            echo "⚠️ AndroidManifest.xml not found"
-          fi
-          
-          # Check MainActivity for v1 embedding
-          MAIN_ACTIVITY="android/app/src/main/java"
-          if [ -d "$MAIN_ACTIVITY" ]; then
-            # Find MainActivity files
-            find "$MAIN_ACTIVITY" -name "MainActivity.*" | while read -r file; do
-              echo "Checking: $file"
-              
-              # Fix Java MainActivity
-              if [[ "$file" == *.java ]]; then
-                if grep -q "io.flutter.app.FlutterActivity" "$file"; then
-                  echo "⚠️ Found v1 embedding in Java, fixing..."
-                  sed -i 's/io.flutter.app.FlutterActivity/io.flutter.embedding.android.FlutterActivity/g' "$file"
-                  echo "✅ Java MainActivity fixed"
-                fi
-              fi
-              
-              # Fix Kotlin MainActivity
-              if [[ "$file" == *.kt ]]; then
-                if grep -q "io.flutter.app.FlutterActivity" "$file"; then
-                  echo "⚠️ Found v1 embedding in Kotlin, fixing..."
-                  sed -i 's/io.flutter.app.FlutterActivity/io.flutter.embedding.android.FlutterActivity/g' "$file"
-                  echo "✅ Kotlin MainActivity fixed"
-                fi
-              fi
-            done
-          else
-            echo "⚠️ MainActivity directory not found"
-          fi
-          
-          echo "✅ Android embedding check completed."
-
-      # ============================================================
-      # 10. CHECK AND FIX MAINACTIVITY
-      # ============================================================
-      - name: Check MainActivity
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          
-          echo "🔍 Searching for MainActivity..."
-          find android -name "MainActivity.*" -type f 2>/dev/null || true
-          
-          # Check if MainActivity exists
-          MAIN_ACTIVITY_FILES=$(find android -name "MainActivity.*" -type f 2>/dev/null | wc -l)
-          
-          if [ "$MAIN_ACTIVITY_FILES" -eq 0 ]; then
-            echo "⚠️ MainActivity tidak ditemukan, membuat baru..."
-            
-            # Determine package name from AndroidManifest
-            PACKAGE_NAME=$(grep -o 'package="[^"]*"' android/app/src/main/AndroidManifest.xml | cut -d'"' -f2 || echo "com.example.app")
-            
-            # Create directory structure
-            PACKAGE_PATH="android/app/src/main/java/${PACKAGE_NAME//.//}"
-            mkdir -p "$PACKAGE_PATH"
-            
-            # Create MainActivity.java
-            cat > "$PACKAGE_PATH/MainActivity.java" <<'EOF'
-            package PACKAGE_NAME_PLACEHOLDER;
-            
-            import io.flutter.embedding.android.FlutterActivity;
-            
-            public class MainActivity extends FlutterActivity {
-            }
-            EOF
-            
-            # Replace package name
-            sed -i "s/PACKAGE_NAME_PLACEHOLDER/$PACKAGE_NAME/g" "$PACKAGE_PATH/MainActivity.java"
-            
-            echo "✅ MainActivity.java created"
-          else
-            echo "✅ MainActivity found"
-          fi
-
-      # ============================================================
-      # 11. FLUTTER PUB GET
+      # 9. FLUTTER PUB GET
       # ============================================================
       - name: Flutter Pub Get
         shell: bash
@@ -281,7 +172,7 @@ jobs:
           echo "✅ Dependencies installed."
 
       # ============================================================
-      # 12. BUILD APK
+      # 10. BUILD APK
       # ============================================================
       - name: Build APK Release
         shell: bash
@@ -295,7 +186,7 @@ jobs:
           echo "✅ APK build completed."
 
       # ============================================================
-      # 13. FIND APK
+      # 11. FIND APK
       # ============================================================
       - name: Find APK
         shell: bash
@@ -320,7 +211,7 @@ jobs:
           echo "✅ APK found: ${APK_MB} MB"
 
       # ============================================================
-      # 14. UPLOAD ARTIFACT
+      # 12. UPLOAD ARTIFACT
       # ============================================================
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -331,7 +222,7 @@ jobs:
           if-no-files-found: error
 
       # ============================================================
-      # 15. SEND TELEGRAM MESSAGE
+      # 13. SEND TELEGRAM MESSAGE
       # ============================================================
       - name: Send Build Result to Telegram
         shell: bash
@@ -360,7 +251,7 @@ jobs:
           echo "✅ Telegram message sent."
 
       # ============================================================
-      # 16. SEND APK TO TELEGRAM
+      # 14. SEND APK TO TELEGRAM
       # ============================================================
       - name: Send APK to Telegram
         shell: bash
